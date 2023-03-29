@@ -3,11 +3,8 @@ from sklearn import svm
 import pickle
 import matplotlib.pyplot as plt
 import numpy as np
+from consts import *
 
-CIFAR_PATH = "cifar-10-batches-py/"
-H = W = 32
-C = 3
-IMAGE_SIZE = H * W * C
 
 
 def load_data(path):
@@ -35,8 +32,8 @@ def get_10percent_cifar():
 
 def train_svm():
     (train_X, train_y), (test_X, test_y) = get_10percent_cifar()
-    train_X = train_X.reshape(-1, IMAGE_SIZE)
-    test_X = test_X.reshape(-1, IMAGE_SIZE)
+    train_X = train_X.reshape(-1, CIFAR_IMAGE_SIZE)
+    test_X = test_X.reshape(-1, CIFAR_IMAGE_SIZE)
 
     clf = svm.SVC(kernel="linear")
     clf.fit(train_X, train_y)
@@ -49,6 +46,8 @@ def train_svm():
     y_train_pred = rbf.predict(train_X)
     y_test_pred = rbf.predict(test_X)
     print("RBF Accuracy: Train: {} - Test: {}".format(np.sum(y_train_pred == train_y) / len(train_y), np.sum(y_test_pred == test_y) / len(test_y)))
+
+
 
 
 
