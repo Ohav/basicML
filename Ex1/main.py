@@ -58,9 +58,10 @@ def calc_accuracy_and_loss(net, test_X, test_y, criterion):
     correct = (predicted == test_y).sum().item()
     accuracy = correct/total
     loss = criterion(outputs, test_y)
-    return accuracy, loss
+    return accuracy, loss.detach().numpy().reshape(1)[0]
 
-def train_nn(criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, number_of_epochs=50):
+
+def train_nn(criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, number_of_epochs=50, optimizer='sgd', init='normal'):
     (train_X, train_y), (test_X, test_y) = get_10percent_cifar()
     train_X = train_X.reshape(-1, CIFAR_IMAGE_SIZE)
     test_X = test_X.reshape(-1, CIFAR_IMAGE_SIZE)
@@ -69,11 +70,26 @@ def train_nn(criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, n
     test_X = torch.tensor(test_X, dtype=torch.float32)
     test_y = torch.tensor(test_y, dtype=torch.long)
     net = FCN(256)
-    net.init_weights(std)
+    if init == 'normal':
+        net.init_weights(std)
+    elif init == 'xavier':
+        net.init_weights_xavier()
     losses = np.zeros(number_of_epochs)
-    optimizer = optim.SGD(net.parameters(), lr=lr, momentum=momentum)
+    test_loss = []
+    test_acc = []
+    if optimizer == "sgd":
+        optimizer = optim.SGD(net.parameters(), lr=lr, momentum=momentum)
+    elif optimizer == "adam":
+        optimizer = optim.Adam(net.parameters(), lr=lr)
+    else:
+        print("Invalid optimizer " + str(optimizer))
+        return 0
     for epoch in tqdm.tqdm(range(number_of_epochs)):  # loop over the dataset multiple times
         running_loss = 0.0
+        indices = list(range(len(train_X)))
+        np.random.shuffle(indices)
+        train_X = train_X[indices]
+        train_y = train_y[indices]
         for i in range(0, len(train_X), 64):
             inputs = train_X[i:i + 64]
             labels = train_y[i:i + 64]
@@ -84,8 +100,11 @@ def train_nn(criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, n
             optimizer.step()
             running_loss += loss.item()
         losses[epoch] = running_loss
+        stats = calc_accuracy_and_loss(net, test_X, test_y, criterion)
+        test_loss.append(stats[1])
+        test_acc.append(stats[0])
 
-    return calc_accuracy_and_loss(net, test_X, test_y, criterion)
+    return test_loss, test_acc
 
 def grid_search():
     results = {}
@@ -102,6 +121,58 @@ def grid_search():
     print(results)
     print(f"Best: {min_loss} made by {min_params}")
 
+
+def compare_sgd_adam():
+    # Q2.2
+    # Run SGD and ADAM and plot accuracies & loss.
+    epoch_count = 20
+    sgd_stats = train_nn(criterion=nn.CrossEntropyLoss(), lr=5e-3, momentum=0.95, std=0.001, number_of_epochs=epoch_count, optimizer='sgd')
+    adam_stats = train_nn(criterion=nn.CrossEntropyLoss(), lr=5e-3, momentum=0.95, number_of_epochs=epoch_count, optimizer='adam')
+    plt.figure()
+    plt.subplot(121)
+    plt.title("SGD vs Adam test set loss, over epochs")
+    plt.plot(range(epoch_count), sgd_stats[0], 'b', label="SGD loss")
+    plt.plot(range(epoch_count), adam_stats[0], 'r', label='Adam loss')
+    plt.legend()
+    plt.xlabel("Epoch Number")
+    plt.ylabel("Test loss")
+    plt.subplot(122)
+    plt.title("SGD vs Adam test set accuracy, over epochs")
+    plt.plot(range(epoch_count), sgd_stats[1], 'b', label="SGD accuracy")
+    plt.plot(range(epoch_count), adam_stats[1], 'r', label='Adam accuracy')
+    plt.legend()
+    plt.xlabel("Epoch Number")
+    plt.ylabel("Test accuracy")
+    plt.show()
+
+def xavier_init():
+    # Q2.3
+    # Run SGD with std init and Xavier init and plot accuracies & loss.
+    epoch_count = 20
+    sgd_stats = train_nn(criterion=nn.CrossEntropyLoss(), lr=5e-3, momentum=0.95, std=0.001,
+                         number_of_epochs=epoch_count, optimizer='sgd')
+    xavier_stats = train_nn(criterion=nn.CrossEntropyLoss(), lr=5e-3, momentum=0.95,
+                          number_of_epochs=epoch_count, optimizer='sgd', init='xavier')
+    plt.figure()
+    plt.subplot(121)
+    plt.title("Normal vs Xavier init SGD test set loss, over epochs")
+    plt.plot(range(epoch_count), sgd_stats[0], 'b', label="Normal Distribution loss")
+    plt.plot(range(epoch_count), xavier_stats[0], 'r', label='Xavier loss')
+    plt.legend()
+    plt.xlabel("Epoch Number")
+    plt.ylabel("Test loss")
+    plt.subplot(122)
+    plt.title("Normal vs Xavier init SGD test set accuracy, over epochs")
+    plt.plot(range(epoch_count), sgd_stats[1], 'b', label="Normal Distribution accuracy")
+    plt.plot(range(epoch_count), xavier_stats[1], 'r', label='Xavier accuracy')
+    plt.legend()
+    plt.xlabel("Epoch Number")
+    plt.ylabel("Test accuracy")
+    plt.show()
+
+
 if __name__ == "__main__":
     #train_svm()
-    print(grid_search())
+    # print(grid_search())
+    # compare_sgd_adam()
+    xavier_init()
