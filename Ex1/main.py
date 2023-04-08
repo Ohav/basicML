@@ -9,7 +9,6 @@ import torch.nn as nn
 from networks import FCN
 import tqdm
 
-
 def load_data(path):
     with open(path, 'rb') as f:
         # Dictionary
@@ -51,6 +50,7 @@ def train_svm():
     print("RBF Accuracy: Train: {} - Test: {}".format(np.sum(y_train_pred == train_y) / len(train_y), np.sum(y_test_pred == test_y) / len(test_y)))
 
 def calc_accuracy_and_loss(net, test_X, test_y, criterion):
+    net.eval()
     outputs = net(test_X)
     # the class with the highest energy is what we choose as prediction
     _, predicted = torch.max(outputs.data, 1)
@@ -61,7 +61,8 @@ def calc_accuracy_and_loss(net, test_X, test_y, criterion):
     return accuracy, loss.detach().numpy().reshape(1)[0]
 
 
-def train_nn(criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, number_of_epochs=50, optimizer='sgd', init='normal'):
+def train_nn(criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, number_of_epochs=50, weight_decay=0,
+             optimizer='sgd', init='normal', dropout=0, hidden_width=256, depth=1):
     (train_X, train_y), (test_X, test_y) = get_10percent_cifar()
     train_X = train_X.reshape(-1, CIFAR_IMAGE_SIZE)
     test_X = test_X.reshape(-1, CIFAR_IMAGE_SIZE)
@@ -69,16 +70,18 @@ def train_nn(criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, n
     train_y = torch.tensor(train_y, dtype=torch.long)
     test_X = torch.tensor(test_X, dtype=torch.float32)
     test_y = torch.tensor(test_y, dtype=torch.long)
-    net = FCN(256)
+    net = FCN(hidden_width, depth=depth, dropout=dropout)
     if init == 'normal':
         net.init_weights(std)
     elif init == 'xavier':
         net.init_weights_xavier()
+
     losses = np.zeros(number_of_epochs)
     test_loss = []
     test_acc = []
     if optimizer == "sgd":
-        optimizer = optim.SGD(net.parameters(), lr=lr, momentum=momentum)
+        optimizer = optim.SGD(net.parameters(), lr=lr,
+                              momentum=momentum, weight_decay=weight_decay)
     elif optimizer == "adam":
         optimizer = optim.Adam(net.parameters(), lr=lr)
     else:
@@ -90,6 +93,7 @@ def train_nn(criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, n
         np.random.shuffle(indices)
         train_X = train_X[indices]
         train_y = train_y[indices]
+        net.train()
         for i in range(0, len(train_X), 64):
             inputs = train_X[i:i + 64]
             labels = train_y[i:i + 64]
@@ -106,7 +110,10 @@ def train_nn(criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, n
 
     return test_loss, test_acc
 
+
 def grid_search():
+    # Q2.1
+    # Grid search over lr, momentum and std for SGD optimizer.
     results = {}
     min_loss = 10000000
     min_params = ()
@@ -145,6 +152,7 @@ def compare_sgd_adam():
     plt.ylabel("Test accuracy")
     plt.show()
 
+
 def xavier_init():
     # Q2.3
     # Run SGD with std init and Xavier init and plot accuracies & loss.
@@ -155,12 +163,12 @@ def xavier_init():
                           number_of_epochs=epoch_count, optimizer='sgd', init='xavier')
     plt.figure()
     plt.subplot(121)
-    plt.title("Normal vs Xavier init SGD test set loss, over epochs")
-    plt.plot(range(epoch_count), sgd_stats[0], 'b', label="Normal Distribution loss")
-    plt.plot(range(epoch_count), xavier_stats[0], 'r', label='Xavier loss')
-    plt.legend()
-    plt.xlabel("Epoch Number")
-    plt.ylabel("Test loss")
+    draw_plot([sgd_stats[0], xavier_stats[0]],
+              ["Normal Distribution loss", "Xavier Loss"],
+              ['b', 'r'],
+              "Normal vs Xavier init SGD test set loss, over epochs",
+              "Epoch Number",
+              "Loss")
     plt.subplot(122)
     plt.title("Normal vs Xavier init SGD test set accuracy, over epochs")
     plt.plot(range(epoch_count), sgd_stats[1], 'b', label="Normal Distribution accuracy")
@@ -171,8 +179,112 @@ def xavier_init():
     plt.show()
 
 
+def draw_plot(stats, labels, options, title, xlabel, ylabel):
+    assert(len(stats) == len(labels))
+    if options is None:
+        options = plt.get_cmap('hsv', len(stats))
+    plt.title(title)
+    for i in range(len(stats)):
+        plt.plot(range(len(stats[i])), stats[i], options[i], label=labels[i])
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.legend()
+
+
+def regularization_train():
+    epoch_count = 25
+    losses = []
+    accs = []
+    labels = []
+
+    weights = [0, 1, 10]
+    dropouts = [0, 0.25, 0.5]
+    # options = plt.get_cmap('hsv', len(weights) * len(dropouts))
+    options = 'brgmc'*20
+    for weight in weights:
+        for dropout in dropouts:
+            cur_stats = train_nn(criterion=nn.CrossEntropyLoss(), lr=5e-3, momentum=0.95,
+                     number_of_epochs=epoch_count, optimizer='sgd', init='normal',
+                     weight_decay=weight, dropout=dropout)
+            losses.append(cur_stats[0])
+            accs.append(cur_stats[1])
+            labels.append("Weight decay={}, dropout p={}".format(weight, dropout))
+    plt.figure()
+    plt.subplot(121)
+    draw_plot(losses, labels, options,
+              "Regularization test loss over Epochs\nwith different configurations",
+              "Epoch Count", "Loss")
+    plt.subplot(122)
+    draw_plot(accs, labels, options,
+              "Regularization test accuracy over Epochs\nwith different configurations",
+              "Epoch Count", "Accuracy")
+
+    plt.show()
+
+def width_train():
+    epoch_count = 25
+    losses = []
+    accs = []
+    labels = []
+
+    # options = plt.get_cmap('hsv', len(weights) * len(dropouts))
+    options = 'brgmc' * 20
+    for i in [6, 10, 12]:
+        width = 2 ** i
+        cur_stats = train_nn(criterion=nn.CrossEntropyLoss(), lr=5e-3, momentum=0.95,
+                            number_of_epochs=epoch_count, optimizer='sgd', init='normal',
+                            weight_decay=0, dropout=0, hidden_width=width)
+        losses.append(cur_stats[0])
+        accs.append(cur_stats[1])
+        labels.append("Width " + str(width))
+
+    plt.figure()
+    plt.subplot(121)
+    draw_plot(losses, labels, options,
+              "Network test loss over Epochs\nWith different hidden layer width",
+              "Epoch Count", "Loss")
+    plt.subplot(122)
+    draw_plot(accs, labels, options,
+              "Network test Accuracy over Epochs\nWith different hidden layer width",
+              "Epoch Count", "Accuracy")
+
+    plt.show()
+
+
+def depth_train():
+    epoch_count = 25
+    losses = []
+    accs = []
+    labels = []
+
+    # options = plt.get_cmap('hsv', len(weights) * len(dropouts))
+    options = 'brgmc' * 20
+    for depth in [3, 4, 10]:
+        cur_stats = train_nn(criterion=nn.CrossEntropyLoss(), lr=5e-3, momentum=0.95,
+                             number_of_epochs=epoch_count, optimizer='sgd', init='normal',
+                             weight_decay=0, dropout=0, depth=depth)
+        losses.append(cur_stats[0])
+        accs.append(cur_stats[1])
+        labels.append("Depth " + str(depth))
+
+    plt.figure()
+    plt.subplot(121)
+    draw_plot(losses, labels, options,
+              "Network Loss over Epochs\nWith different network depth",
+              "Epoch Count", "Loss")
+    plt.subplot(122)
+    draw_plot(accs, labels, options,
+              "Network Accuracy over Epochs\nWith different network depth",
+              "Epoch Count", "Accuracy")
+
+    plt.show()
+
+
 if __name__ == "__main__":
     #train_svm()
     # print(grid_search())
     # compare_sgd_adam()
-    xavier_init()
+    # xavier_init()
+    # regularization_train()
+    # width_train()
+    depth_train()
