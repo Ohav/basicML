@@ -29,7 +29,6 @@ class FCN(nn.Module):
         self.out.bias.data.normal_(mean=0.0, std=std)
 
     def init_weights_xavier(self):
-        # fix init with depth
         layer1_range = np.sqrt(6) / np.sqrt(CIFAR_IMAGE_SIZE + self.hidden_width)
         self.FC_layers[0].weight.data.uniform_(-layer1_range, layer1_range)
         # self.FC_layers[0].bias.data.uniform_(-layer1_range, layer1_range)

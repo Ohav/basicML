@@ -9,6 +9,7 @@ import torch.nn as nn
 from networks import FCN, CNN
 import tqdm
 from itertools import cycle
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 def load_data(path):
     with open(path, 'rb') as f:
@@ -65,12 +66,10 @@ def calc_accuracy_and_loss(net, test_X, test_y, criterion):
 def train_nn(net, criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, number_of_epochs=50, weight_decay=0,
              optimizer='sgd', init='normal'):
     (train_X, train_y), (test_X, test_y) = get_10percent_cifar()
-    # train_X = train_X.reshape(-1, CIFAR_IMAGE_SIZE)
-    # test_X = test_X.reshape(-1, CIFAR_IMAGE_SIZE)
-    train_X = torch.tensor(train_X, dtype=torch.float32)
-    train_y = torch.tensor(train_y, dtype=torch.long)
-    test_X = torch.tensor(test_X, dtype=torch.float32)
-    test_y = torch.tensor(test_y, dtype=torch.long)
+    train_X = torch.tensor(train_X, dtype=torch.float32).to(device)
+    train_y = torch.tensor(train_y, dtype=torch.long).to(device)
+    test_X = torch.tensor(test_X, dtype=torch.float32).to(device)
+    test_y = torch.tensor(test_y, dtype=torch.long).to(device)
     if init == 'normal':
         net.init_weights(std)
     elif init == 'xavier':
@@ -85,11 +84,12 @@ def train_nn(net, criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0
         optimizer = optim.SGD(net.parameters(), lr=lr,
                               momentum=momentum, weight_decay=weight_decay)
     elif optimizer == "adam":
-        optimizer = optim.Adam(net.parameters(), lr=lr)
+        optimizer = optim.Adam(net.parameters(), lr=lr, betas=(momentum, 0.999))
     else:
         print("Invalid optimizer " + str(optimizer))
         return 0
 
+    net.to(device)
     for epoch in tqdm.tqdm(range(number_of_epochs)):  # loop over the dataset multiple times
         indices = list(range(len(train_X)))
         np.random.shuffle(indices)
@@ -146,11 +146,11 @@ def draw_plot(stats, labels, options, title, xlabel, ylabel):
 
 def plot_two_compared_configuration_stats(stat1, stat2, name1, name2, epoch_count):
     plt.figure()
-    plt.subplot(121)
+    plt.subplot(211)
     test_stats1, train_stats1 = stat1
     test_stats2, train_stats2 = stat2
 
-    plt.title(f"{name1} vs {name2} test & train loss, over epochs")
+    plt.title(f"{name1} vs {name2} loss, over epochs")
     plt.plot(range(epoch_count), test_stats1[0], 'b', label=f"{name1} test loss")
     plt.plot(range(epoch_count), test_stats2[0], 'r', label=f'{name2} test loss')
     plt.plot(range(epoch_count), train_stats1[0], 'b--', label=f"{name1} train loss")
@@ -158,36 +158,34 @@ def plot_two_compared_configuration_stats(stat1, stat2, name1, name2, epoch_coun
 
     plt.legend()
     plt.xlabel("Epoch Number")
-    plt.ylabel("Test loss")
-    plt.subplot(122)
-    plt.title(f"{name1} vs {name2} test set accuracy, over epochs")
+    plt.ylabel("Loss")
+    plt.subplot(212)
+    plt.title(f"{name1} vs {name2} accuracy, over epochs")
     plt.plot(range(epoch_count), test_stats1[1], 'b', label=f"{name1} test accuracy")
     plt.plot(range(epoch_count), test_stats2[1], 'r', label=f'{name2} test accuracy')
     plt.plot(range(epoch_count), train_stats1[1], 'b--', label=f"{name1} train accuracy")
     plt.plot(range(epoch_count), train_stats2[1], 'r--', label=f'{name2} train accuracy')
     plt.legend()
     plt.xlabel("Epoch Number")
-    plt.ylabel("Test accuracy")
-    plt.show()
+    plt.ylabel("Accuracy")
 
 
-def compare_sgd_adam(network, lr=5e-3, momentum=0.95, std=0.001):
+def compare_sgd_adam(network, epoch_count=25, lr=5e-3, momentum=0.95, std=0.01):
     # Q2.2
     # Run SGD and ADAM and plot accuracies & loss.
-    epoch_count = 10
     network_sgd = network()
     sgd_stats = train_nn(net=network_sgd, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum,
                          std=std, number_of_epochs=epoch_count, optimizer='sgd')
     network_adam = network()
-    adam_stats = train_nn(net=network_adam, criterion=nn.CrossEntropyLoss(), lr=1e-5, momentum=momentum,
+    adam_stats = train_nn(net=network_adam, criterion=nn.CrossEntropyLoss(), lr=1e-3, momentum=momentum,
                           std=std, number_of_epochs=epoch_count, optimizer='adam')
     plot_two_compared_configuration_stats(sgd_stats, adam_stats, 'SGD', 'Adam', epoch_count)
+    plt.savefig("FCN_SGDvsAdam.jpg")
 
 
-def xavier_init(network, lr=5e-3, momentum=0.95, std=0.01):
+def xavier_init(network, epoch_count=25, lr=5e-3, momentum=0.95, std=0.01):
     # Q2.3
     # Run SGD with std init and Xavier init and plot accuracies & loss.
-    epoch_count = 50
     net = network()
     normal_stats = train_nn(net=net, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum,
                             std=std, number_of_epochs=epoch_count, optimizer='sgd', init='normal')
@@ -195,6 +193,7 @@ def xavier_init(network, lr=5e-3, momentum=0.95, std=0.01):
     xavier_stats = train_nn(net=net_xavier, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum,
                             number_of_epochs=epoch_count, optimizer='sgd', init='xavier')
     plot_two_compared_configuration_stats(normal_stats, xavier_stats, 'Normal', 'Xaviar', epoch_count)
+    plt.savefig("FCN_NormalvsXavier.jpg")
 
 
 def regularization_train(network, epoch_count=25):
@@ -223,16 +222,16 @@ def regularization_train(network, epoch_count=25):
             labels.append("Test Weight decay={}, dropout p={}".format(weight, dropout))
             labels.append("Train Weight decay={}, dropout p={}".format(weight, dropout))
     plt.figure()
-    plt.subplot(121)
+    plt.subplot(211)
     draw_plot(losses, labels, options,
               "Regularization test loss over Epochs\nwith different configurations",
               "Epoch Count", "Loss")
-    plt.subplot(122)
+    plt.subplot(212)
     draw_plot(accs, labels, options,
               "Regularization test accuracy over Epochs\nwith different configurations",
               "Epoch Count", "Accuracy")
 
-    plt.show()
+    plt.savefig("FCN_Regularization.jpg")
 
 def width_train(network, epoch_count=25):
     losses = []
@@ -241,13 +240,11 @@ def width_train(network, epoch_count=25):
     options = []
 
     colors = cycle('brgmc')
-    # TODO: Add net init
     for i in [6, 10, 12]:
         width = 2 ** i
         cur_net = network(hidden_width=width)
-        test_stats, train_stats = train_nn(net=cur_net, criterion=nn.CrossEntropyLoss(), lr=5e-3, momentum=0.95,
-                            number_of_epochs=epoch_count, optimizer='sgd', init='normal',
-                            weight_decay=0)
+        test_stats, train_stats = train_nn(net=cur_net, criterion=nn.CrossEntropyLoss(), lr=5e-3, momentum=0.95, std=0.01,
+                            number_of_epochs=epoch_count, optimizer='sgd', init='normal')
         losses.append(test_stats[0])
         accs.append(test_stats[1])
         losses.append(train_stats[0])
@@ -258,17 +255,17 @@ def width_train(network, epoch_count=25):
         labels.append("Test Width {}".format(width))
         labels.append("Train Width {}".format(width))
 
-    plt.figure()
-    plt.subplot(121)
+    plt.figure(figsize=(8, 5))
+    plt.subplot(211)
     draw_plot(losses, labels, options,
               "Network test loss over Epochs\nWith different hidden layer width",
               "Epoch Count", "Loss")
-    plt.subplot(122)
+    plt.subplot(212)
     draw_plot(accs, labels, options,
               "Network test Accuracy over Epochs\nWith different hidden layer width",
               "Epoch Count", "Accuracy")
 
-    plt.show()
+    plt.savefig("FCN_Width2.jpg")
 
 
 def depth_train(network, epoch_count=25):
@@ -281,7 +278,7 @@ def depth_train(network, epoch_count=25):
         cur_net = network(depth=depth)
         test_stats, train_stats = train_nn(net=cur_net, criterion=nn.CrossEntropyLoss(), lr=5e-3, momentum=0.95,
                              number_of_epochs=epoch_count, optimizer='sgd', init='normal',
-                             weight_decay=0)
+                             std=0.01)
         losses.append(test_stats[0])
         losses.append(train_stats[0])
         accs.append(test_stats[1])
@@ -292,17 +289,26 @@ def depth_train(network, epoch_count=25):
         labels.append("Test Depth {}".format(depth))
         labels.append("Train Depth {}".format(depth))
 
-    plt.figure()
-    plt.subplot(121)
+    plt.figure(figsize=(8, 5))
+    plt.subplot(211)
     draw_plot(losses, labels, options,
               "Network Loss over Epochs\nWith different network depth",
               "Epoch Count", "Loss")
-    plt.subplot(122)
+    plt.subplot(212)
     draw_plot(accs, labels, options,
               "Network Accuracy over Epochs\nWith different network depth",
               "Epoch Count", "Accuracy")
 
-    plt.show()
+    plt.savefig("FCN_Depth2.jpg")
+
+
+def question_2():
+    # compare_sgd_adam(FCN, 60)
+    # xavier_init(FCN, 60)
+    # regularization_train(FCN, 30)
+    width_train(FCN, 60)
+    depth_train(FCN, 60)
+
 
 
 if __name__ == "__main__":
@@ -316,4 +322,5 @@ if __name__ == "__main__":
     # depth_train()
     # network = CNN()
     # compare_sgd_adam(network, 5e-3, 0.8, 0.1)
-    depth_train(FCN, 25)
+    # depth_train(FCN, 25)
+    question_2()
