@@ -7,6 +7,7 @@ from consts import *
 
 
 class FCN(nn.Module):
+    NAME = "FCN"
     def __init__(self, hidden_width=HIDDEN_WIDTH_FCN,
                  depth=DEPTH_FCN,
                  dropout=DROPOUT_FCN):
@@ -46,9 +47,10 @@ class FCN(nn.Module):
 
     def forward(self, X):
         X = torch.flatten(X, 1)
-        self.dropout_layer(X)
         for layer in self.FC_layers:
+            X = self.dropout_layer(X)
             X = F.relu(layer(X))
+        X = self.dropout_layer(X)
         result = self.out(X)
         return result
 
