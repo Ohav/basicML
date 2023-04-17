@@ -20,6 +20,9 @@ class FCN(nn.Module):
         self.out = nn.Linear(hidden_width, CIFAR_CLASS_COUNT)
         self.dropout_layer = nn.Dropout(dropout)
 
+    def change_dropout_p(self, p=0):
+        self.dropout_layer = nn.Dropout(p)
+
     def init_weights(self, std):
         for l in self.FC_layers:
             l.weight.data.normal_(mean=0.0, std=std)
@@ -49,8 +52,9 @@ class FCN(nn.Module):
         result = self.out(X)
         return result
 
+
 class CNN(nn.Module):
-    def __init__(self):
+    def __init__(self, dropout=DROPOUT_FCN):
         super().__init__()
         self.conv1 = nn.Conv2d(3, 64, 3)  # output - 30 * 30 * 64 (H x W x D)
         self.conv1_output_size = 64*30*30
@@ -58,15 +62,24 @@ class CNN(nn.Module):
         self.conv2_output_size = 16 * 13 * 13
         self.pool = nn.MaxPool2d(2, 2)
 
-        self.fc = nn.Linear(6*6*16, 784)
         self.hidden_width = 784
-        self.out = nn.Linear(784, 10)
+        self.fc = nn.Linear(6*6*16, self.hidden_width)
+        self.out = nn.Linear(self.hidden_width, 10)
+
+        self.dropout_layer = nn.Dropout(dropout)
+
+    def change_dropout_p(self, p=0):
+        self.dropout_layer = nn.Dropout(p)
 
     def forward(self, x):
         x = self.pool(F.relu(self.conv1(x)))
+        x = self.dropout_layer(x)
         x = self.pool(F.relu(self.conv2(x)))
+        x = self.dropout_layer(x)
+
         x = torch.flatten(x, 1)  # flatten all dimensions except batch
         x = self.fc(x)
+        x = self.dropout_layer(x)  # TODO: maybe remove
         x = self.out(x)
         return x
 

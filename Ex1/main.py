@@ -9,7 +9,10 @@ import torch.nn as nn
 from networks import FCN, CNN
 import tqdm
 from itertools import cycle
+from sklearn.decomposition import PCA
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 
 def load_data(path):
     with open(path, 'rb') as f:
@@ -51,6 +54,7 @@ def train_svm():
     y_test_pred = rbf.predict(test_X)
     print("RBF Accuracy: Train: {} - Test: {}".format(np.sum(y_train_pred == train_y) / len(train_y), np.sum(y_test_pred == test_y) / len(test_y)))
 
+
 def calc_accuracy_and_loss(net, test_X, test_y, criterion):
     net.eval()
     outputs = net(test_X)
@@ -64,12 +68,17 @@ def calc_accuracy_and_loss(net, test_X, test_y, criterion):
 
 
 def train_nn(net, criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, number_of_epochs=50, weight_decay=0,
-             optimizer='sgd', init='normal'):
+             optimizer='sgd', init='normal', use_pca=False):
     (train_X, train_y), (test_X, test_y) = get_10percent_cifar()
     train_X = torch.tensor(train_X, dtype=torch.float32).to(device)
     train_y = torch.tensor(train_y, dtype=torch.long).to(device)
     test_X = torch.tensor(test_X, dtype=torch.float32).to(device)
     test_y = torch.tensor(test_y, dtype=torch.long).to(device)
+    if use_pca:
+        pca = PCA()
+        pca.fit(torch.flatten(train_X, 1))
+        train_X = torch.tensor(pca.transform(torch.flatten(train_X, 1)).reshape(-1, C, H, W), dtype=torch.float32)
+        test_X = torch.tensor(pca.transform(torch.flatten(test_X, 1)).reshape(-1, C, H, W), dtype=torch.float32)
     if init == 'normal':
         net.init_weights(std)
     elif init == 'xavier':
@@ -104,23 +113,29 @@ def train_nn(net, criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
-        test_stats = calc_accuracy_and_loss(net, test_X, test_y, criterion)
-        test_loss.append(test_stats[1])
-        test_acc.append(test_stats[0])
+
         train_stats = calc_accuracy_and_loss(net, train_X, train_y, criterion)
         train_loss.append(train_stats[1])
         train_acc.append(train_stats[0])
 
+        net.change_dropout_p(0)
+        test_stats = calc_accuracy_and_loss(net, test_X, test_y, criterion)
+        test_loss.append(test_stats[1])
+        test_acc.append(test_stats[0])
+
     return (test_loss, test_acc), (train_loss, train_acc)
 
-def grid_search(net):
+
+def grid_search(network=FCN, optimizer='sgd', momentums=[0.8, 0.85, 0.9, 0.95]):
     results = {}
     min_loss = 10000000
     min_params = ()
     for lr in [5e-5, 1e-4, 5e-4, 1e-3, 5e-3]:
-        for momentum in [0.8, 0.85, 0.9, 0.95]:
+        for momentum in momentums:
             for std in [0.001, 0.01, 0.1, 0.5, 1]:
-                test_stats, train_stats = train_nn(net=net, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum, std=std, number_of_epochs=10)
+                net = network()
+                test_stats, train_stats = train_nn(net=net, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum,
+                                                   std=std, number_of_epochs=10, optimizer=optimizer)
                 loss, acc = test_stats
                 loss = loss[-1]
                 acc = acc[-1]
@@ -143,6 +158,7 @@ def draw_plot(stats, labels, options, title, xlabel, ylabel):
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.legend()
+
 
 def plot_two_compared_configuration_stats(stat1, stat2, name1, name2, epoch_count):
     plt.figure()
@@ -170,17 +186,18 @@ def plot_two_compared_configuration_stats(stat1, stat2, name1, name2, epoch_coun
     plt.ylabel("Accuracy")
 
 
-def compare_sgd_adam(network, epoch_count=25, lr=5e-3, momentum=0.95, std=0.01):
+def compare_sgd_adam(network, epoch_count=25, sgd_lr=5e-3, sgd_momentum=0.95, sgd_std=0.01, adam_lr=5e-3,
+                     adam_momentum=0.95, adam_std=0.01):
     # Q2.2
     # Run SGD and ADAM and plot accuracies & loss.
     network_sgd = network()
-    sgd_stats = train_nn(net=network_sgd, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum,
-                         std=std, number_of_epochs=epoch_count, optimizer='sgd')
+    sgd_stats = train_nn(net=network_sgd, criterion=nn.CrossEntropyLoss(), lr=sgd_lr, momentum=sgd_momentum,
+                         std=sgd_std, number_of_epochs=epoch_count, optimizer='sgd')
     network_adam = network()
-    adam_stats = train_nn(net=network_adam, criterion=nn.CrossEntropyLoss(), lr=1e-3, momentum=momentum,
-                          std=std, number_of_epochs=epoch_count, optimizer='adam')
+    adam_stats = train_nn(net=network_adam, criterion=nn.CrossEntropyLoss(), lr=adam_lr, momentum=adam_momentum,
+                          std=adam_std, number_of_epochs=epoch_count, optimizer='adam')
     plot_two_compared_configuration_stats(sgd_stats, adam_stats, 'SGD', 'Adam', epoch_count)
-    plt.savefig("FCN_SGDvsAdam.jpg")
+    plt.savefig(f"{network_sgd.__class__.__name__}_SGDvsAdam.jpg")
 
 
 def xavier_init(network, epoch_count=25, lr=5e-3, momentum=0.95, std=0.01):
@@ -193,25 +210,24 @@ def xavier_init(network, epoch_count=25, lr=5e-3, momentum=0.95, std=0.01):
     xavier_stats = train_nn(net=net_xavier, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum,
                             number_of_epochs=epoch_count, optimizer='sgd', init='xavier')
     plot_two_compared_configuration_stats(normal_stats, xavier_stats, 'Normal', 'Xaviar', epoch_count)
-    plt.savefig("FCN_NormalvsXavier.jpg")
+    plt.savefig(f"{net.__class__.__name__}_NormalvsXavier.jpg")
 
 
-def regularization_train(network, epoch_count=25):
+def regularization_train(network, epoch_count=25, lr=5e-3, momentum=0.95, std=0.01, weights = [0, 1, 10], dropouts = [0, 0.25, 0.5]):
     losses = []
     accs = []
     labels = []
     options = []
 
-
-    weights = [0, 1, 10]
-    dropouts = [0, 0.25, 0.5]
     # options = plt.get_cmap('hsv', len(weights) * len(dropouts))
     colors = cycle('brgmc')
+    cur_net = network()
     for weight in weights:
         for dropout in dropouts:
             cur_net = network(dropout=dropout)
-            test_stats, train_stats = train_nn(net=cur_net, criterion=nn.CrossEntropyLoss(), lr=5e-3, momentum=0.95,
-                     number_of_epochs=epoch_count, optimizer='sgd', init='normal', weight_decay=weight)
+            test_stats, train_stats = train_nn(net=cur_net, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum,
+                                               std=std, number_of_epochs=epoch_count, optimizer='sgd', init='normal',
+                                               weight_decay=weight)
             losses.append(test_stats[0])
             accs.append(test_stats[1])
             losses.append(train_stats[0])
@@ -231,7 +247,19 @@ def regularization_train(network, epoch_count=25):
               "Regularization test accuracy over Epochs\nwith different configurations",
               "Epoch Count", "Accuracy")
 
-    plt.savefig("FCN_Regularization.jpg")
+    plt.savefig(f"{cur_net.__class__.__name__}_Regularization.jpg")
+
+
+def preprocessing_train(network, epoch_count=25, lr=5e-3, momentum=0.95, std=0.01):
+    pca_network = network()
+    pca_stats = train_nn(net=pca_network, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum, std=std,
+                         number_of_epochs=epoch_count, optimizer='sgd', use_pca=True)
+    no_pca_network = network()
+    no_pca_stats = train_nn(net=no_pca_network, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum, std=std,
+                            number_of_epochs=epoch_count,optimizer='sgd', use_pca=False)
+    plot_two_compared_configuration_stats(pca_stats, no_pca_stats, 'PCA', 'no PCA', epoch_count)
+    plt.savefig(f"{pca_network.__class__.__name__}_PCAvsNoPCA.jpg")
+
 
 def width_train(network, epoch_count=25):
     losses = []
@@ -303,17 +331,26 @@ def depth_train(network, epoch_count=25):
 
 
 def question_2():
-    # compare_sgd_adam(FCN, 60)
+    # compare_sgd_adam(FCN, 60, adam_lr=1e-3)
     # xavier_init(FCN, 60)
     # regularization_train(FCN, 30)
     width_train(FCN, 60)
     depth_train(FCN, 60)
 
 
+def question_3():
+    grid_search(CNN, momentums=[0.5, 0.6, 0.7, 0.8])
+    # compare_sgd_adam(CNN, 60, sgd_lr=5e-3, sgd_momentum=0.8, sgd_std=0.1, adam_lr=5e-4, adam_momentum=0.8, adam_std=0.1)
+    # xavier_init(CNN, 60)
+    # regularization_train(CNN, 30, lr=5e-3, momentum=0.8, std=0.1, weights=[1e-4, 1e-3, 1e-2])
+    # preprocessing_train(CNN, 60, lr=5e-3, momentum=0.8, std=0.1)
+    # width_train(CNN, 60)
+    # depth_train(CNN, 60)
+
 
 if __name__ == "__main__":
-    #train_svm()
-    # print(grid_search())
+    # train_svm()
+    # grid_search(CNN, optimizer='adam')
     # compare_sgd_adam()
     # xavier_init()
     # regularization_train()
@@ -323,4 +360,5 @@ if __name__ == "__main__":
     # network = CNN()
     # compare_sgd_adam(network, 5e-3, 0.8, 0.1)
     # depth_train(FCN, 25)
-    question_2()
+    # question_2()
+    question_3()
