@@ -58,14 +58,14 @@ class FCN(nn.Module):
 class CNN(nn.Module):
     def __init__(self, dropout=DROPOUT_FCN):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 64, 3)  # output - 30 * 30 * 64 (H x W x D)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3)  # output - 30 * 30 * 64 (H x W x D)
         self.conv1_output_size = 64*30*30
-        self.conv2 = nn.Conv2d(64, 16, 3)  # output - 13 * 13 * 16
+        self.conv2 = nn.Conv2d(64, 16, kernel_size=3)  # output - 13 * 13 * 16
         self.conv2_output_size = 16 * 13 * 13
-        self.pool = nn.MaxPool2d(2, 2)
+        self.pool = nn.MaxPool2d(2, 2, ceil_mode=True)
 
-        self.hidden_width = 784
-        self.fc = nn.Linear(6*6*16, self.hidden_width)
+        self.hidden_width = 7 * 7 * 16
+        # self.fc = nn.Linear(7*7*16, self.hidden_width)
         self.out = nn.Linear(self.hidden_width, 10)
 
         self.dropout_layer = nn.Dropout(dropout)
@@ -74,24 +74,24 @@ class CNN(nn.Module):
         self.dropout_layer = nn.Dropout(p)
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.dropout_layer(x)
-        x = self.pool(F.relu(self.conv2(x)))
-        x = self.dropout_layer(x)
+        val = self.pool(F.relu(self.conv1(x)))
+        # val = self.dropout_layer(val)
+        val = self.pool(F.relu(self.conv2(val)))
+        # val = self.dropout_layer(val)
 
-        x = torch.flatten(x, 1)  # flatten all dimensions except batch
-        x = self.fc(x)
-        x = self.dropout_layer(x)  # TODO: maybe remove
-        x = self.out(x)
-        return x
+        val = torch.flatten(val, 1)  # flatten all dimensions except batch
+        # x = self.fc(x)
+        # val = self.dropout_layer(val)  # TODO: maybe remove
+        val = self.out(val)
+        return val
 
     def init_weights(self, std):
         self.conv1.weight.data.normal_(mean=0.0, std=std)
         self.conv1.bias.data.normal_(mean=0.0, std=std)  # TODO: do convolutional layers have bias?
         self.conv2.weight.data.normal_(mean=0.0, std=std)
         self.conv2.bias.data.normal_(mean=0.0, std=std)
-        self.fc.weight.data.normal_(mean=0.0, std=std)
-        self.fc.bias.data.normal_(mean=0.0, std=std)
+        # self.fc.weight.data.normal_(mean=0.0, std=std)
+        # self.fc.bias.data.normal_(mean=0.0, std=std)
         self.out.weight.data.normal_(mean=0.0, std=std)
         self.out.bias.data.normal_(mean=0.0, std=std)
 
@@ -103,7 +103,7 @@ class CNN(nn.Module):
         #nn.init.xavier_uniform_(self.conv1.bias)
         nn.init.xavier_uniform_(self.conv2.weight)
         #nn.init.xavier_uniform_(self.conv2.bias)
-        nn.init.xavier_uniform_(self.fc.weight)
+        # nn.init.xavier_uniform_(self.fc.weight)
         #nn.init.xavier_uniform_(self.fc.bias)
         nn.init.xavier_uniform_(self.out.weight)
         #nn.init.xavier_uniform_(self.out.bias)

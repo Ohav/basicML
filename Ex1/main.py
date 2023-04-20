@@ -11,9 +11,11 @@ import tqdm
 from itertools import cycle
 from sklearn.decomposition import PCA
 import torchvision
+import pickle
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 best_params = {'lr': 5e-3, 'momentum': 0.9, 'std': 0.1}
+best_params_cnn = {'lr': 5e-3, 'momentum': 0.9, 'std': 0.1}
 
 def load_data(path):
     with open(path, 'rb') as f:
@@ -68,15 +70,16 @@ def train_svm():
     print("RBF Accuracy: Train: {} - Test: {}".format(np.sum(y_train_pred == train_y) / len(train_y), np.sum(y_test_pred == test_y) / len(test_y)))
 
 def calc_accuracy_and_loss(net, test_X, test_y, criterion):
-    net.eval()
-    outputs = net(test_X)
-    # the class with the highest energy is what we choose as prediction
-    _, predicted = torch.max(outputs.data, 1)
-    total = test_y.size(0)
-    correct = (predicted == test_y).sum().item()
-    accuracy = correct/total
-    loss = criterion(outputs, test_y)
-    return accuracy, loss.detach().numpy().reshape(1)[0]
+    with torch.no_grad():
+        net.eval()
+        outputs = net(test_X)
+        # the class with the highest energy is what we choose as prediction
+        _, predicted = torch.max(outputs.data, 1)
+        total = test_y.size(0)
+        correct = (predicted == test_y).sum().item()
+        accuracy = correct/total
+        loss = criterion(outputs, test_y)
+        return accuracy, loss.detach().cpu().numpy().reshape(1)[0]
 
 
 def train_nn(data, net, criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, number_of_epochs=50, weight_decay=0,
@@ -84,9 +87,9 @@ def train_nn(data, net, criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9,
     (train_X, train_y), (test_X, test_y) = data
     if use_pca:
         pca = PCA()
-        pca.fit(torch.flatten(train_X, 1))
-        train_X = torch.tensor(pca.transform(torch.flatten(train_X, 1)).reshape(-1, C, H, W), dtype=torch.float32)
-        test_X = torch.tensor(pca.transform(torch.flatten(test_X, 1)).reshape(-1, C, H, W), dtype=torch.float32)
+        pca.fit(torch.flatten(train_X, 1).cpu())
+        train_X = torch.tensor(pca.transform(torch.flatten(train_X, 1).cpu()).reshape(-1, C, H, W), dtype=torch.float32).to(device)
+        test_X = torch.tensor(pca.transform(torch.flatten(test_X, 1).cpu()).reshape(-1, C, H, W), dtype=torch.float32).to(device)
     if init == 'normal':
         net.init_weights(std)
     elif init == 'xavier':
@@ -110,12 +113,11 @@ def train_nn(data, net, criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9,
     for epoch in tqdm.tqdm(range(number_of_epochs)):  # loop over the dataset multiple times
         indices = list(range(len(train_X)))
         np.random.shuffle(indices)
-        train_X = train_X[indices]
-        train_y = train_y[indices]
         net.train()
         for i in range(0, len(train_X), 64):
-            inputs = train_X[i:i + 64]
-            labels = train_y[i:i + 64]
+            cur_idx = indices[i:i + 64]
+            inputs = train_X[cur_idx]
+            labels = train_y[cur_idx]
             optimizer.zero_grad()
             outputs = net(inputs)
             loss = criterion(outputs, labels)
@@ -131,29 +133,34 @@ def train_nn(data, net, criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9,
     return (test_loss, test_acc), (train_loss, train_acc)
 
 
-def grid_search(network=FCN, optimizer='sgd'):
+def grid_search(net, optimizer='sgd', search_params={}):
+    lr_options = search_params.get('lr', [1e-4, 1e-3, 1e-2, 0.1])
+    momentum_options = search_params.get('momentum',  [0.2, 0.4, 0.6, 0.8, 0.9])
+    std_options = search_params.get('std', [0.001, 0.01, 0.1, 0.5])
     results = {}
-    min_loss = 10000000
+    max_acc = 0
     epoch_count = 20
     min_params = ()
     data = get_data_for_net()
-    for lr in [1e-4, 5e-4, 1e-3, 2e-3, 5e-3]:
-        for momentum in [0.7, 0.8, 0.8, 0.9, 0.95]:
-            for std in [0.001, 0.01, 0.1, 0.5]:
+    for lr in lr_options:
+        for momentum in momentum_options:
+            for std in std_options:
                 cur_net = net()
-                test_stats, train_stats = train_nn(data=data, net=cur_net, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum, std=std, number_of_epochs=epoch_count, optimizer=optimizer)
+                test_stats, train_stats = train_nn(data=data, net=cur_net, criterion=nn.CrossEntropyLoss(),
+                                                   lr=lr, momentum=momentum, std=std, number_of_epochs=epoch_count,
+                                                   optimizer=optimizer)
                 loss, acc = test_stats
                 loss = loss[-1]
                 acc = acc[-1]
                 results[(lr, momentum, std)] = (acc, loss)
-                if loss < min_loss:
+                if acc > max_acc:
                     min_params = (lr, momentum, std)
-                    min_loss = loss
-    print(f"Best: {min_loss} made by {min_params}")
+                    max_acc = acc
+    print(f"Best: {max_acc} made by {min_params}")
     for k, v in results.items():
         print("{}: {}/{:.2f}".format(k, v[0], v[1]))
 
-    print(f"Best: {min_loss} made by {min_params}")
+    print(f"Best: {max_acc} made by {min_params}")
 
 
 def draw_plot(stats, labels, options, title, xlabel, ylabel):
@@ -261,6 +268,10 @@ def regularization_train(network, epoch_count=25, params=best_params):
             options.append(color + '--')
             labels.append("Test Weight decay={}, dropout p={}".format(weight, dropout))
             labels.append("Train Weight decay={}, dropout p={}".format(weight, dropout))
+
+    results_dict = {'labels': labels, 'options': options, 'losses': losses, 'accs': accs}
+    with open(network.__name__ + '_regularizationData.pkl', 'wb') as f:
+        pickle.dump(results_dict, f)
     plt.figure()
     # plt.subplot(211)
     draw_plot(losses, labels, options,
@@ -375,12 +386,13 @@ def depth_train(network, epoch_count=25, params=best_params):
 
 
 def question_2():
+    pass
     # grid_search(FCN)
     # compare_sgd_adam(FCN, 60)
     # xavier_init(FCN, 60)
     # regularization_train(FCN, 30)
-    width_train(FCN, 60)
-    depth_train(FCN, 60)
+    # width_train(FCN, 60)
+    # depth_train(FCN, 60)
 
 
 def question_3():
