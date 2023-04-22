@@ -3,6 +3,7 @@ import torch.nn as nn
 from consts import CIFAR_IMAGE_SIZE, CIFAR_CLASS_COUNT
 import torch.nn.functional as F
 import numpy as np
+import math
 from consts import *
 
 
@@ -20,9 +21,6 @@ class FCN(nn.Module):
 
         self.out = nn.Linear(hidden_width, CIFAR_CLASS_COUNT)
         self.dropout_layer = nn.Dropout(dropout)
-
-    def change_dropout_p(self, p=0):
-        self.dropout_layer = nn.Dropout(p)
 
     def init_weights(self, std):
         for l in self.FC_layers:
@@ -56,44 +54,49 @@ class FCN(nn.Module):
 
 
 class CNN(nn.Module):
-    def __init__(self, dropout=DROPOUT_FCN):
+    def __init__(self, dropout=DROPOUT_CNN, number_of_filters_list=(64, 16), pool_layer_kernel_size=2, pool_layer_stride_size=2):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3)  # output - 30 * 30 * 64 (H x W x D)
-        self.conv1_output_size = 64*30*30
-        self.conv2 = nn.Conv2d(64, 16, kernel_size=3)  # output - 13 * 13 * 16
-        self.conv2_output_size = 16 * 13 * 13
-        self.pool = nn.MaxPool2d(2, 2, ceil_mode=True)
 
-        self.hidden_width = 7 * 7 * 16
-        # self.fc = nn.Linear(7*7*16, self.hidden_width)
-        self.out = nn.Linear(self.hidden_width, 10)
+        self.number_of_filters_list = number_of_filters_list
+        self.conv_layers = [nn.Conv2d(3, number_of_filters_list[0], kernel_size=3)]
+        self.conv_layers_output_height_and_width = H - 2
+        if len(self.number_of_filters_list) < 3:
+            self.conv_layers_output_height_and_width = math.ceil(self.conv_layers_output_height_and_width / 2)
+        for i in range(1, len(number_of_filters_list)):
+            self.conv_layers.append(nn.Conv2d(number_of_filters_list[i-1], number_of_filters_list[i], kernel_size=3))
+            self.conv_layers_output_height_and_width = self.conv_layers_output_height_and_width - 2
+            if len(self.number_of_filters_list) < 3 or (i == 1 or i == 2):
+                self.conv_layers_output_height_and_width = math.ceil(self.conv_layers_output_height_and_width/2)
 
+        #  Q3 1-6:
+        # self.conv1_output_size = 64*30*30
+        # self.conv2_output_size = 16 * 13 * 13
+
+        self.pool = nn.MaxPool2d(pool_layer_kernel_size, pool_layer_stride_size, ceil_mode=True)
+
+        self.hidden_width = (self.conv_layers_output_height_and_width ** 2) * number_of_filters_list[-1]
+        self.fc = nn.Linear(self.hidden_width, 10)
         self.dropout_layer = nn.Dropout(dropout)
 
-    def change_dropout_p(self, p=0):
-        self.dropout_layer = nn.Dropout(p)
-
     def forward(self, x):
-        val = self.pool(F.relu(self.conv1(x)))
-        # val = self.dropout_layer(val)
-        val = self.pool(F.relu(self.conv2(val)))
-        # val = self.dropout_layer(val)
+        val = x
+        for i, conv_layer in enumerate(self.conv_layers):
+            val = F.relu(conv_layer(val))
+            if len(self.number_of_filters_list) < 3 or (i == 1 or i == 2):
+                val = self.pool(val)
+            val = self.dropout_layer(val)
 
         val = torch.flatten(val, 1)  # flatten all dimensions except batch
-        # x = self.fc(x)
-        # val = self.dropout_layer(val)  # TODO: maybe remove
-        val = self.out(val)
+        val = self.fc(val)
         return val
 
     def init_weights(self, std):
-        self.conv1.weight.data.normal_(mean=0.0, std=std)
-        self.conv1.bias.data.normal_(mean=0.0, std=std)  # TODO: do convolutional layers have bias?
-        self.conv2.weight.data.normal_(mean=0.0, std=std)
-        self.conv2.bias.data.normal_(mean=0.0, std=std)
-        # self.fc.weight.data.normal_(mean=0.0, std=std)
-        # self.fc.bias.data.normal_(mean=0.0, std=std)
-        self.out.weight.data.normal_(mean=0.0, std=std)
-        self.out.bias.data.normal_(mean=0.0, std=std)
+        for conv_layer in self.conv_layers:
+            conv_layer.weight.data.normal_(mean=0.0, std=std)
+            conv_layer.bias.data.normal_(mean=0.0, std=std)
+
+        self.fc.weight.data.normal_(mean=0.0, std=std)
+        self.fc.bias.data.normal_(mean=0.0, std=std)
 
     def init_weights_xavier(self):
         # TODO: Change to our own Xavier, like in FCN
@@ -103,10 +106,8 @@ class CNN(nn.Module):
         #nn.init.xavier_uniform_(self.conv1.bias)
         nn.init.xavier_uniform_(self.conv2.weight)
         #nn.init.xavier_uniform_(self.conv2.bias)
-        # nn.init.xavier_uniform_(self.fc.weight)
+        nn.init.xavier_uniform_(self.fc.weight)
         #nn.init.xavier_uniform_(self.fc.bias)
-        nn.init.xavier_uniform_(self.out.weight)
-        #nn.init.xavier_uniform_(self.out.bias)
 
 
 

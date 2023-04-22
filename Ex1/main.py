@@ -344,6 +344,47 @@ def width_train(network, epoch_count=25, params=best_params):
     plt.savefig("{}_width_acc.jpg".format(net_name))
 
 
+def width_train_CNN(epoch_count=25, params=best_params_cnn):
+    lr = params['lr']
+    momentum = params['momentum']
+    std = params['std']
+    data = get_data_for_net()
+    losses = []
+    accs = []
+    labels = []
+    options = []
+
+    colors = cycle('brgmc')
+    for number_of_filters_list in [(256, 64), (512, 256)]:
+        cur_net = CNN(number_of_filters_list=number_of_filters_list)
+        test_stats, train_stats = train_nn(data=data, net=cur_net, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum, std=std,
+                            number_of_epochs=epoch_count, optimizer='sgd', init='normal')
+        losses.append(test_stats[0])
+        accs.append(test_stats[1])
+        losses.append(train_stats[0])
+        accs.append(train_stats[1])
+        color = colors.__next__()
+        options.append(color)
+        options.append(color + '--')
+        labels.append("Test Filters {}".format(number_of_filters_list))
+        labels.append("Train Filters {}".format(number_of_filters_list))
+
+    plt.figure(figsize=(8, 5))
+    # plt.subplot(211)
+    draw_plot(losses, labels, options,
+              "Network test loss over Epochs\nWith different filter sizes",
+              "Epoch Count", "Loss")
+    plt.savefig("CNN_width_loss.jpg")
+
+    plt.figure(figsize=(8, 5))
+    # plt.subplot(212)
+    draw_plot(accs, labels, options,
+              "Network test Accuracy over Epochs\nWith different filter sizes",
+              "Epoch Count", "Accuracy")
+
+    plt.savefig("CNN_width_acc.jpg")
+
+
 def depth_train(network, epoch_count=25, params=best_params):
     lr = params['lr']
     momentum = params['momentum']
@@ -396,12 +437,12 @@ def question_2():
 
 
 def question_3():
-    grid_search(CNN)
+    # grid_search(CNN)
     # compare_sgd_adam(CNN, 60, sgd_lr=5e-3, sgd_momentum=0.8, sgd_std=0.1, adam_lr=5e-4, adam_momentum=0.8, adam_std=0.1)
     # xavier_init(CNN, 60)
     # regularization_train(CNN, 30, lr=5e-3, momentum=0.8, std=0.1, weights=[1e-4, 1e-3, 1e-2])
     # preprocessing_train(CNN, 60, lr=5e-3, momentum=0.8, std=0.1)
-    # width_train(CNN, 60)
+    width_train_CNN(60)
     # depth_train(CNN, 60)
 
 
