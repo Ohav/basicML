@@ -14,8 +14,9 @@ import torchvision
 import pickle
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-best_params = {'lr': 5e-3, 'momentum': 0.9, 'std': 0.1}
-best_params_cnn = {'lr': 5e-3, 'momentum': 0.9, 'std': 0.1}
+best_params_fcn = {'lr': 5e-3, 'momentum': 0.9, 'std': 0.1}
+best_params_cnn = {'lr': 0.01, 'momentum': 0.9, 'std': 0.1}
+best_params_cnn_adam = {'lr': 0.001, 'momentum': 0.9, 'std': 0.1}
 
 def load_data(path):
     with open(path, 'rb') as f:
@@ -25,30 +26,38 @@ def load_data(path):
 
 
 def get_10percent_cifar():
-    train_data = torchvision.datasets.CIFAR10(root='./cifar_data', train=True,
+    train_data_cifar10 = torchvision.datasets.CIFAR10(root='./cifar_data', train=True,
                                             download=True)
-    test_data = torchvision.datasets.CIFAR10(root='./cifar_data', train=False,
+    test_data_cifar10 = torchvision.datasets.CIFAR10(root='./cifar_data', train=False,
                                            download=True)
+    train_data = train_data_cifar10.data / 255
+    train_labels = np.array(train_data_cifar10.targets)
+    test_data = test_data_cifar10.data / 255
+    test_labels = np.array(test_data_cifar10.targets)
 
+    train_idx = np.random.choice(np.arange(len(train_data.data)), size=5000, replace=False)
+    train_samples = train_data[train_idx]
+    train_labels = train_labels[train_idx]
 
-    train_idx = np.random.choice(np.arange(len(train_data.data)), 5000, replace=False)
-    samples = np.array(train_data.data)[train_idx] / 255
-    labels = np.array(train_data.targets)[train_idx]
-    samples = samples.reshape(-1, C, H, W)
+    test_idx = np.random.choice(np.arange(len(test_data.data)), size=1000, replace=False)
+    test_samples = test_data[test_idx]
+    test_labels = test_labels[test_idx]
 
-    test_idx = np.random.choice(np.arange(len(test_data.data)), 1000, replace=False)
-    test_samples = np.array(test_data.data)[test_idx] / 255
-    test_labels = np.array(test_data.targets)[test_idx]
-    test_samples = test_samples.reshape((-1, C, H, W))
-    return (samples, labels), (test_samples, test_labels)
+    train_samples = torch.from_numpy(train_samples).permute(0, 3, 1, 2).to(device)
+    test_samples = torch.from_numpy(test_samples).permute(0, 3, 1, 2).to(device)
+
+    train_labels = torch.from_numpy(train_labels).to(device)
+    test_labels= torch.from_numpy(test_labels).to(device)
+
+    return (train_samples, train_labels), (test_samples, test_labels)
 
 
 def get_data_for_net():
     (train_X, train_y), (test_X, test_y) = get_10percent_cifar()
-    train_X = torch.tensor(train_X, dtype=torch.float32).to(device)
-    train_y = torch.tensor(train_y, dtype=torch.long).to(device)
-    test_X = torch.tensor(test_X, dtype=torch.float32).to(device)
-    test_y = torch.tensor(test_y, dtype=torch.long).to(device)
+    train_X = train_X.type(torch.float32)
+    train_y = train_y.type(torch.long)
+    test_X = test_X.type(torch.float32)
+    test_y = test_y.type(torch.long)
     return (train_X, train_y), (test_X, test_y)
 
 
@@ -85,13 +94,11 @@ def calc_accuracy_and_loss(net, data_x, data_y, criterion):
 def train_nn(data, net, criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, number_of_epochs=50, weight_decay=0,
              optimizer='sgd', init='normal', use_pca=False):
     (train_X, train_y), (test_X, test_y) = data
-
     if use_pca:
         pca = PCA()
         pca.fit(torch.flatten(train_X, 1).cpu())
         train_X = torch.tensor(pca.transform(torch.flatten(train_X, 1).cpu()).reshape(-1, C, H, W), dtype=torch.float32).to(device)
         test_X = torch.tensor(pca.transform(torch.flatten(test_X, 1).cpu()).reshape(-1, C, H, W), dtype=torch.float32).to(device)
-
     if init == 'normal':
         net.init_weights(std)
     elif init == 'xavier':
@@ -121,7 +128,6 @@ def train_nn(data, net, criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9,
             inputs = train_X[cur_idx]
             labels = train_y[cur_idx]
             optimizer.zero_grad()
-
             outputs = net(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
@@ -147,6 +153,8 @@ def grid_search(net, optimizer='sgd', search_params={}):
     epoch_count = 20
     min_params = ()
     data = get_data_for_net()
+    losses = []
+    accs = []
     for lr in lr_options:
         for momentum in momentum_options:
             for std in std_options:
@@ -159,16 +167,34 @@ def grid_search(net, optimizer='sgd', search_params={}):
                 acc = acc[-1]
                 results[(lr, momentum, std)] = (acc, loss)
                 if acc > max_acc:
+                    losses = [test_stats[0], train_stats[0]]
+                    accs = [[test_stats[1], train_stats[1]]]
                     min_params = (lr, momentum, std)
                     max_acc = acc
+    labels = ['Test', 'Train']
+    options = ['b', 'b--']
     print(f"Best: {max_acc} made by {min_params}")
-    for k, v in results.items():
-        print("{}: {}/{:.2f}".format(k, v[0], v[1]))
+    # for k, v in results.items():
+    #     print("{}: {}/{:.2f}".format(k, v[0], v[1]))
+    #
+    # print(f"Best: {max_acc} made by {min_params}")
+    plt.figure(figsize=(8, 10))
+    plt.subplot(211)
+    draw_plot(losses, labels, options,
+                   "Loss over Epochs\nWith best SGD parameters",
+                   "", "Loss")
 
-    print(f"Best: {max_acc} made by {min_params}")
+    plt.subplot(212)
+    draw_plot(accs, labels, options,
+                   "Accuracy over Epochs\nWith best SGD parameters",
+                   "Epoch Count", "Accuracy")
+    print("Test: {:.2f}/{}\nTrain:{:.2f}/{}".format(accs[0][-1], losses[0][-1], accs[1][-1], losses[1][-1]))
+    plt.savefig(net.__name__ + '_gridsearch.png')
+    return {'lr': min_params[0], 'momentum': min_params[1], 'std': min_params[2]}
 
 
-def draw_plot(stats, labels, options, title, xlabel, ylabel):
+
+def draw_plot(stats, labels, options, title, xlabel, ylabel, legend='bottom left'):
     assert(len(stats) == len(labels))
     if options is None:
         options = plt.get_cmap('hsv', len(stats))
@@ -177,7 +203,7 @@ def draw_plot(stats, labels, options, title, xlabel, ylabel):
         plt.plot(range(len(stats[i])), stats[i], options[i], label=labels[i])
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
-    plt.legend()
+    plt.legend(loc=legend)
 
 
 def plot_two_compared_configuration_stats(stat1, stat2, name1, name2, epoch_count):
@@ -206,7 +232,7 @@ def plot_two_compared_configuration_stats(stat1, stat2, name1, name2, epoch_coun
     plt.ylabel("Accuracy")
 
 
-def compare_sgd_adam(network, epoch_count=25, sgd_params=best_params, adam_params=best_params):
+def compare_sgd_adam(network, epoch_count=25, sgd_params=best_params_fcn, adam_params=best_params_fcn):
     # Q2.2
     # Run SGD and ADAM and plot accuracies & loss.
     sgd_lr = sgd_params['lr']
@@ -228,7 +254,7 @@ def compare_sgd_adam(network, epoch_count=25, sgd_params=best_params, adam_param
     plt.savefig(f"{network.__name__}_SGDvsAdam.jpg")
 
 
-def xavier_init(network, epoch_count=25, params=best_params):
+def xavier_init(network, epoch_count=25, params=best_params_fcn):
     # Q2.3
     # Run SGD with std init and Xavier init and plot accuracies & loss.
     lr = params['lr']
@@ -245,7 +271,7 @@ def xavier_init(network, epoch_count=25, params=best_params):
     plt.savefig(f"{network.__name__}_NormalvsXavier.jpg")
 
 
-def regularization_train(network, epoch_count=25, params=best_params):
+def regularization_train(network, epoch_count=25, params=best_params_fcn):
     losses = []
     accs = []
     labels = []
@@ -274,26 +300,27 @@ def regularization_train(network, epoch_count=25, params=best_params):
             labels.append("Test Weight decay={}, dropout p={}".format(weight, dropout))
             labels.append("Train Weight decay={}, dropout p={}".format(weight, dropout))
 
-
-
     results_dict = {'labels': labels, 'options': options, 'losses': losses, 'accs': accs}
-    return results_dict
+    # return results_dict
     # with open(network.__name__ + '_regularizationData.pkl', 'wb') as f:
     #     pickle.dump(results_dict, f)
     # plt.figure()
-    # # plt.subplot(211)
-    # draw_plot(losses, labels, options,
-    #           "Regularization test loss over Epochs\nwith different configurations",
-    #           "Epoch Count", "Loss")
-    # # plt.subplot(212)
+    plt.figure(figsize=(8, 10))
+    # plt.subplot(211)
+    draw_plot(losses, labels, options,
+              "Regularization test loss over Epochs\nwith different configurations",
+              "Epoch Count", "Loss", legend='top left')
+    # plt.subplot(212)
     # plt.figure()
-    # draw_plot(accs, labels, options,
-    #           "Regularization test accuracy over Epochs\nwith different configurations",
-    #           "Epoch Count", "Accuracy")
-    #
-    # plt.savefig(f"{cur_net.__class__.__name__}_Regularization.jpg")
+    plt.figure(figsize=(8, 10))
+    draw_plot(accs, labels, options,
+              "Regularization test accuracy over Epochs\nwith different configurations",
+              "Epoch Count", "Accuracy", legend='top left')
 
-def preprocessing_train(network, epoch_count=25, params=best_params):
+    plt.savefig(f"{cur_net.__class__.__name__}_Regularization.jpg")
+    return results_dict
+
+def preprocessing_train(network, epoch_count=25, params=best_params_fcn):
     data = get_data_for_net()
     lr = params['lr']
     momentum = params['momentum']
@@ -309,7 +336,7 @@ def preprocessing_train(network, epoch_count=25, params=best_params):
     plt.savefig(f"{pca_network.__class__.__name__}_PCAvsNoPCA.jpg")
 
 
-def width_train(network, epoch_count=25, params=best_params):
+def width_train(network, epoch_count=25, params=best_params_fcn):
     lr = params['lr']
     momentum = params['momentum']
     std = params['std']
@@ -336,23 +363,66 @@ def width_train(network, epoch_count=25, params=best_params):
         labels.append("Test Width {}".format(width))
         labels.append("Train Width {}".format(width))
 
-    plt.figure(figsize=(8, 5))
+    plt.figure(figsize=(8, 10))
     # plt.subplot(211)
     draw_plot(losses, labels, options,
               "Network test loss over Epochs\nWith different hidden layer width",
-              "Epoch Count", "Loss")
+              "Epoch Count", "Loss", legend='bottom left')
     plt.savefig("{}_width_loss.jpg".format(net_name))
+
+    plt.figure(figsize=(8, 10))
+    # plt.subplot(212)
+    draw_plot(accs, labels, options,
+              "Network test Accuracy over Epochs\nWith different hidden layer width",
+              "Epoch Count", "Accuracy", legend='top left')
+
+    plt.savefig("{}_width_acc.jpg".format(net_name))
+    return {'labels': labels, 'options': options, 'losses': losses, 'accs': accs}
+
+
+def width_train_CNN(epoch_count=25, params=best_params_cnn):
+    lr = params['lr']
+    momentum = params['momentum']
+    std = params['std']
+    data = get_data_for_net()
+    losses = []
+    accs = []
+    labels = []
+    options = []
+
+    colors = cycle('brgmc')
+    for number_of_filters_list in [(256, 64), (512, 256)]:
+        cur_net = CNN(number_of_filters_list=number_of_filters_list)
+        test_stats, train_stats = train_nn(data=data, net=cur_net, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum, std=std,
+                            number_of_epochs=epoch_count, optimizer='sgd', init='normal')
+        losses.append(test_stats[0])
+        accs.append(test_stats[1])
+        losses.append(train_stats[0])
+        accs.append(train_stats[1])
+        color = colors.__next__()
+        options.append(color)
+        options.append(color + '--')
+        labels.append("Test Filters {}".format(number_of_filters_list))
+        labels.append("Train Filters {}".format(number_of_filters_list))
+
+    plt.figure(figsize=(8, 5))
+    # plt.subplot(211)
+    draw_plot(losses, labels, options,
+              "Network test loss over Epochs\nWith different filter sizes",
+              "Epoch Count", "Loss")
+    plt.savefig("CNN_width_loss.jpg")
 
     plt.figure(figsize=(8, 5))
     # plt.subplot(212)
     draw_plot(accs, labels, options,
-              "Network test Accuracy over Epochs\nWith different hidden layer width",
+              "Network test Accuracy over Epochs\nWith different filter sizes",
               "Epoch Count", "Accuracy")
 
-    plt.savefig("{}_width_acc.jpg".format(net_name))
+    plt.savefig("CNN_width_acc.jpg")
+    return {'labels': labels, 'options': options, 'losses': losses, 'accs': accs}
 
 
-def depth_train(network, epoch_count=25, params=best_params):
+def depth_train(network, epoch_count=25, params=best_params_fcn):
     lr = params['lr']
     momentum = params['momentum']
     std = params['std']
@@ -381,26 +451,66 @@ def depth_train(network, epoch_count=25, params=best_params):
     # plt.subplot(211)
     draw_plot(losses, labels, options,
               "Network Loss over Epochs\nWith different network depth",
-              "Epoch Count", "Loss")
+              "Epoch Count", "Loss", legend='bottom left')
     # plt.subplot(212)
     plt.savefig("{}_depth_loss.jpg".format(net_name))
 
     plt.figure(figsize=(8, 5))
     draw_plot(accs, labels, options,
               "Network Accuracy over Epochs\nWith different network depth",
-              "Epoch Count", "Accuracy")
+              "Epoch Count", "Accuracy", legend='top left')
 
     plt.savefig("{}_depth_acc.jpg".format(net_name))
+    return {'labels': labels, 'options': options, 'losses': losses, 'accs': accs}
+
+
+def depth_train_CNN(epoch_count=25, params=best_params_cnn):
+    lr = params['lr']
+    momentum = params['momentum']
+    std = params['std']
+    data = get_data_for_net()
+    losses = []
+    accs = []
+    labels = []
+    options = []
+    colors = cycle('brgmc')
+    for number_of_filters_list in [(64, 16), (64, 64, 16), (64, 64, 16, 16), (64, 64, 16, 16, 16)]:
+        cur_net = CNN(number_of_filters_list=number_of_filters_list)
+        test_stats, train_stats = train_nn(data=data, net=cur_net, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum,
+                                           std=std, number_of_epochs=epoch_count, optimizer='sgd', init='normal')
+        losses.append(test_stats[0])
+        losses.append(train_stats[0])
+        accs.append(test_stats[1])
+        accs.append(train_stats[1])
+        color = colors.__next__()
+        options.append(color)
+        options.append(color + '--')
+        labels.append("Test Depth {}".format(len(number_of_filters_list)))
+        labels.append("Train Depth {}".format(len(number_of_filters_list)))
+
+    plt.figure(figsize=(8, 5))
+    # plt.subplot(211)
+    draw_plot(losses, labels, options,
+              "Network Loss over Epochs\nWith different network depth",
+              "Epoch Count", "Loss")
+    # plt.subplot(212)
+    plt.savefig("CNN_depth_loss.jpg")
+
+    plt.figure(figsize=(8, 5))
+    draw_plot(accs, labels, options,
+              "Network Accuracy over Epochs\nWith different network depth",
+              "Epoch Count", "Accuracy")
+
+    plt.savefig("CNN_depth_acc.jpg")
 
 
 def question_2():
-    pass
-    # grid_search(FCN)
-    # compare_sgd_adam(FCN, 60)
-    # xavier_init(FCN, 60)
-    # regularization_train(FCN, 30)
-    # width_train(FCN, 60)
-    # depth_train(FCN, 60)
+    found_params = grid_search(FCN)
+    compare_sgd_adam(FCN, 50, found_params, adam_params=found_params)
+    xavier_init(FCN, 40, found_params)
+    regularization_train(FCN, 50, found_params)
+    width_train(FCN, 50, found_params)
+    depth_train(FCN, 50, found_params)
 
 
 def question_3():
@@ -409,8 +519,8 @@ def question_3():
     xavier_init(CNN, 20, best_params_cnn)
     # regularization_train(CNN, 30, lr=5e-3, momentum=0.8, std=0.1, weights=[1e-4, 1e-3, 1e-2])
     # preprocessing_train(CNN, 60, lr=5e-3, momentum=0.8, std=0.1)
-    # width_train(CNN, 60)
-    # depth_train(CNN, 60)
+    width_train_CNN(5)
+    depth_train_CNN(60)
 
 
 if __name__ == "__main__":
