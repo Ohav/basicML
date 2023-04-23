@@ -37,8 +37,8 @@ def get_10percent_cifar():
     samples = samples.reshape(-1, C, H, W)
 
     test_idx = np.random.choice(np.arange(len(test_data.data)), 1000, replace=False)
-    test_labels = np.array(test_data.targets)[test_idx]
     test_samples = np.array(test_data.data)[test_idx] / 255
+    test_labels = np.array(test_data.targets)[test_idx]
     test_samples = test_samples.reshape((-1, C, H, W))
     return (samples, labels), (test_samples, test_labels)
 
@@ -69,31 +69,34 @@ def train_svm():
     y_test_pred = rbf.predict(test_X)
     print("RBF Accuracy: Train: {} - Test: {}".format(np.sum(y_train_pred == train_y) / len(train_y), np.sum(y_test_pred == test_y) / len(test_y)))
 
-def calc_accuracy_and_loss(net, test_X, test_y, criterion):
+def calc_accuracy_and_loss(net, data_x, data_y, criterion):
     with torch.no_grad():
         net.eval()
-        outputs = net(test_X)
+        outputs = net(data_x)
         # the class with the highest energy is what we choose as prediction
         _, predicted = torch.max(outputs.data, 1)
-        total = test_y.size(0)
-        correct = (predicted == test_y).sum().item()
-        accuracy = correct/total
-        loss = criterion(outputs, test_y)
+        total = data_y.size(0)
+        correct = (predicted == data_y).sum().item()
+        accuracy = correct / total
+        loss = criterion(outputs, data_y)
         return accuracy, loss.detach().cpu().numpy().reshape(1)[0]
 
 
 def train_nn(data, net, criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9, std=0.1, number_of_epochs=50, weight_decay=0,
              optimizer='sgd', init='normal', use_pca=False):
     (train_X, train_y), (test_X, test_y) = data
+
     if use_pca:
         pca = PCA()
         pca.fit(torch.flatten(train_X, 1).cpu())
         train_X = torch.tensor(pca.transform(torch.flatten(train_X, 1).cpu()).reshape(-1, C, H, W), dtype=torch.float32).to(device)
         test_X = torch.tensor(pca.transform(torch.flatten(test_X, 1).cpu()).reshape(-1, C, H, W), dtype=torch.float32).to(device)
+
     if init == 'normal':
         net.init_weights(std)
     elif init == 'xavier':
         net.init_weights_xavier()
+    net = net.to(device)
 
     test_loss = []
     test_acc = []
@@ -109,7 +112,6 @@ def train_nn(data, net, criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9,
         print("Invalid optimizer " + str(optimizer))
         return 0
 
-    net.to(device)
     for epoch in tqdm.tqdm(range(number_of_epochs)):  # loop over the dataset multiple times
         indices = list(range(len(train_X)))
         np.random.shuffle(indices)
@@ -119,13 +121,16 @@ def train_nn(data, net, criterion=nn.CrossEntropyLoss(), lr=0.001, momentum=0.9,
             inputs = train_X[cur_idx]
             labels = train_y[cur_idx]
             optimizer.zero_grad()
+
             outputs = net(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
+
         test_stats = calc_accuracy_and_loss(net, test_X, test_y, criterion)
         test_loss.append(test_stats[1])
         test_acc.append(test_stats[0])
+
         train_stats = calc_accuracy_and_loss(net, train_X, train_y, criterion)
         train_loss.append(train_stats[1])
         train_acc.append(train_stats[0])
@@ -269,21 +274,24 @@ def regularization_train(network, epoch_count=25, params=best_params):
             labels.append("Test Weight decay={}, dropout p={}".format(weight, dropout))
             labels.append("Train Weight decay={}, dropout p={}".format(weight, dropout))
 
-    results_dict = {'labels': labels, 'options': options, 'losses': losses, 'accs': accs}
-    with open(network.__name__ + '_regularizationData.pkl', 'wb') as f:
-        pickle.dump(results_dict, f)
-    plt.figure()
-    # plt.subplot(211)
-    draw_plot(losses, labels, options,
-              "Regularization test loss over Epochs\nwith different configurations",
-              "Epoch Count", "Loss")
-    # plt.subplot(212)
-    plt.figure()
-    draw_plot(accs, labels, options,
-              "Regularization test accuracy over Epochs\nwith different configurations",
-              "Epoch Count", "Accuracy")
 
-    plt.savefig(f"{cur_net.__class__.__name__}_Regularization.jpg")
+
+    results_dict = {'labels': labels, 'options': options, 'losses': losses, 'accs': accs}
+    return results_dict
+    # with open(network.__name__ + '_regularizationData.pkl', 'wb') as f:
+    #     pickle.dump(results_dict, f)
+    # plt.figure()
+    # # plt.subplot(211)
+    # draw_plot(losses, labels, options,
+    #           "Regularization test loss over Epochs\nwith different configurations",
+    #           "Epoch Count", "Loss")
+    # # plt.subplot(212)
+    # plt.figure()
+    # draw_plot(accs, labels, options,
+    #           "Regularization test accuracy over Epochs\nwith different configurations",
+    #           "Epoch Count", "Accuracy")
+    #
+    # plt.savefig(f"{cur_net.__class__.__name__}_Regularization.jpg")
 
 def preprocessing_train(network, epoch_count=25, params=best_params):
     data = get_data_for_net()
@@ -396,9 +404,9 @@ def question_2():
 
 
 def question_3():
-    grid_search(CNN)
+    # grid_search(CNN)
     # compare_sgd_adam(CNN, 60, sgd_lr=5e-3, sgd_momentum=0.8, sgd_std=0.1, adam_lr=5e-4, adam_momentum=0.8, adam_std=0.1)
-    # xavier_init(CNN, 60)
+    xavier_init(CNN, 20, best_params_cnn)
     # regularization_train(CNN, 30, lr=5e-3, momentum=0.8, std=0.1, weights=[1e-4, 1e-3, 1e-2])
     # preprocessing_train(CNN, 60, lr=5e-3, momentum=0.8, std=0.1)
     # width_train(CNN, 60)
