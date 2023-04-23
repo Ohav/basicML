@@ -59,7 +59,8 @@ class CNN(nn.Module):
         super(CNN, self).__init__()
 
         self.number_of_filters_list = number_of_filters_list
-        self.conv_layers = [nn.Conv2d(3, number_of_filters_list[0], kernel_size=3)]
+        self.conv_layers = nn.ModuleList()
+        self.conv_layers.append(nn.Conv2d(3, number_of_filters_list[0], kernel_size=3))
         self.conv_layers_output_height_and_width = H - 2
         if len(self.number_of_filters_list) < 3:
             self.conv_layers_output_height_and_width = math.ceil(self.conv_layers_output_height_and_width / 2)
@@ -98,10 +99,8 @@ class CNN(nn.Module):
 
         self.fc.weight.data.normal_(mean=0.0, std=std)
         self.fc.bias.data.normal_(mean=0.0, std=std)
-        pass
 
     def init_weights_xavier(self):
-        print('hi')
         layer_range = np.sqrt(6) / np.sqrt(CIFAR_IMAGE_SIZE + self.number_of_filters_list[0] * 3 * 3)
         self.conv_layers[0].weight.data.uniform_(-layer_range, layer_range)
         for i in range(1, len(self.number_of_filters_list)):

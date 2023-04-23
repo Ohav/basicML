@@ -26,22 +26,31 @@ def load_data(path):
 
 
 def get_10percent_cifar():
-    train_data = torchvision.datasets.CIFAR10(root='./cifar_data', train=True,
+    train_data_cifar10 = torchvision.datasets.CIFAR10(root='./cifar_data', train=True,
                                             download=True)
-    test_data = torchvision.datasets.CIFAR10(root='./cifar_data', train=False,
+    test_data_cifar10 = torchvision.datasets.CIFAR10(root='./cifar_data', train=False,
                                            download=True)
+    train_data = train_data_cifar10.data / 255
+    train_labels = np.array(train_data_cifar10.targets)
+    test_data = test_data_cifar10.data / 255
+    test_labels = np.array(test_data_cifar10.targets)
 
+    train_idx = np.random.choice(np.arange(50000), size=5000, replace=False)
 
-    train_idx = np.random.choice(np.arange(len(train_data.data)), 5000, replace=False)
-    samples = np.array(train_data.data)[train_idx] / 255
-    labels = np.array(train_data.targets)[train_idx]
-    samples = samples.reshape(-1, C, H, W)
+    train_samples = train_data[train_idx]
+    train_labels = train_labels[train_idx]
 
-    test_idx = np.random.choice(np.arange(len(test_data.data)), 1000, replace=False)
-    test_labels = np.array(test_data.targets)[test_idx]
-    test_samples = np.array(test_data.data)[test_idx] / 255
-    test_samples = test_samples.reshape((-1, C, H, W))
-    return (samples, labels), (test_samples, test_labels)
+    test_idx = np.random.choice(np.arange(10000), size=1000, replace=False)
+    test_samples = test_data[test_idx]
+    test_labels = test_labels[test_idx]
+
+    train_samples = torch.from_numpy(train_samples).permute(0, 3, 1, 2)
+    test_samples = torch.from_numpy(test_samples).permute(0, 3, 1, 2)
+
+    train_labels = torch.from_numpy(train_labels).to(device)
+    test_labels= torch.from_numpy(test_labels).to(device)
+
+    return (train_samples, train_labels), (test_samples, test_labels)
 
 
 def get_data_for_net():
@@ -375,7 +384,7 @@ def width_train_CNN(epoch_count=25, params=best_params_cnn):
     draw_plot(losses, labels, options,
               "Network test loss over Epochs\nWith different filter sizes",
               "Epoch Count", "Loss")
-    plt.savefig("CNN_width_loss2.jpg")
+    plt.savefig("CNN_width_loss.jpg")
 
     plt.figure(figsize=(8, 5))
     # plt.subplot(212)
@@ -383,7 +392,7 @@ def width_train_CNN(epoch_count=25, params=best_params_cnn):
               "Network test Accuracy over Epochs\nWith different filter sizes",
               "Epoch Count", "Accuracy")
 
-    plt.savefig("CNN_width_acc2.jpg")
+    plt.savefig("CNN_width_acc.jpg")
 
 
 def depth_train(network, epoch_count=25, params=best_params_fcn):
@@ -479,12 +488,15 @@ def question_2():
 
 def question_3():
     # grid_search(CNN)
-    # compare_sgd_adam(CNN, 60, sgd_lr=5e-3, sgd_momentum=0.8, sgd_std=0.1, adam_lr=5e-4, adam_momentum=0.8, adam_std=0.1)
-    xavier_init(CNN, 60, best_params_cnn)
+    # without grid search for adam
+    compare_sgd_adam(CNN, 60, sgd_params=best_params_cnn, adam_params=best_params_cnn)
+    # with grid search for adam
+    compare_sgd_adam(CNN, 60, sgd_params=best_params_cnn, adam_params=best_params_cnn_adam)
+    # xavier_init(CNN, 60, best_params_cnn)
     # regularization_train(CNN, 30, lr=5e-3, momentum=0.8, std=0.1, weights=[1e-4, 1e-3, 1e-2])
     # preprocessing_train(CNN, 60, lr=5e-3, momentum=0.8, std=0.1)
-    # width_train_CNN(60)
-    # depth_train_CNN(60)
+    width_train_CNN(5)
+    depth_train_CNN(60)
 
 
 if __name__ == "__main__":
