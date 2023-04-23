@@ -15,8 +15,8 @@ import pickle
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 best_params_fcn = {'lr': 5e-3, 'momentum': 0.9, 'std': 0.1}
-best_params_cnn = {'lr': 0.01, 'momentum': 0.9, 'std': 0.1}
-best_params_cnn_adam = {'lr': 0.001, 'momentum': 0.9, 'std': 0.1}
+best_params_cnn = {'lr': 0.01, 'momentum': 0.8, 'std': 0.1}
+best_params_cnn_adam = {'lr': 0.001, 'momentum': 0.6, 'std': 0.1}
 
 def load_data(path):
     with open(path, 'rb') as f:
@@ -194,7 +194,7 @@ def grid_search(net, optimizer='sgd', search_params={}):
 
 
 
-def draw_plot(stats, labels, options, title, xlabel, ylabel, legend='bottom left'):
+def draw_plot(stats, labels, options, title, xlabel, ylabel, legend='upper left'):
     assert(len(stats) == len(labels))
     if options is None:
         options = plt.get_cmap('hsv', len(stats))
@@ -281,7 +281,7 @@ def regularization_train(network, epoch_count=25, params=best_params_fcn):
     std = params['std']
     data = get_data_for_net()
 
-    weights = [0, 1]
+    weights = [0,0.3,0.6]
     dropouts = [0, 0.1, 0.25, 0.4]
     # options = plt.get_cmap('hsv', len(weights) * len(dropouts))
     colors = cycle('brgmcyk')
@@ -391,7 +391,7 @@ def width_train_CNN(epoch_count=25, params=best_params_cnn):
     options = []
 
     colors = cycle('brgmc')
-    for number_of_filters_list in [(256, 64), (512, 256)]:
+    for number_of_filters_list in [(512, 256)]:
         cur_net = CNN(number_of_filters_list=number_of_filters_list)
         test_stats, train_stats = train_nn(data=data, net=cur_net, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum, std=std,
                             number_of_epochs=epoch_count, optimizer='sgd', init='normal')
@@ -404,6 +404,7 @@ def width_train_CNN(epoch_count=25, params=best_params_cnn):
         options.append(color + '--')
         labels.append("Test Filters {}".format(number_of_filters_list))
         labels.append("Train Filters {}".format(number_of_filters_list))
+        del cur_net
 
     plt.figure(figsize=(8, 5))
     # plt.subplot(211)
@@ -516,14 +517,15 @@ def question_2():
 def question_3():
     # grid_search(CNN)
     # compare_sgd_adam(CNN, 60, sgd_lr=5e-3, sgd_momentum=0.8, sgd_std=0.1, adam_lr=5e-4, adam_momentum=0.8, adam_std=0.1)
-    xavier_init(CNN, 20, best_params_cnn)
+    #xavier_init(CNN, 20, best_params_cnn)
     # regularization_train(CNN, 30, lr=5e-3, momentum=0.8, std=0.1, weights=[1e-4, 1e-3, 1e-2])
-    # preprocessing_train(CNN, 60, lr=5e-3, momentum=0.8, std=0.1)
-    width_train_CNN(5)
-    depth_train_CNN(60)
+    #preprocessing_train(CNN, 60, best_params_cnn)
+    width_train_CNN(60)
+    #depth_train_CNN(60)
 
 
 if __name__ == "__main__":
     #train_svm()
     # question_2()
+
     question_3()

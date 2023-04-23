@@ -62,12 +62,11 @@ class CNN(nn.Module):
         self.conv_layers = nn.ModuleList()
         self.conv_layers.append(nn.Conv2d(3, number_of_filters_list[0], kernel_size=3))
         self.conv_layers_output_height_and_width = H - 2
-        if len(self.number_of_filters_list) < 3:
-            self.conv_layers_output_height_and_width = math.ceil(self.conv_layers_output_height_and_width / 2)
+        self.conv_layers_output_height_and_width = math.ceil(self.conv_layers_output_height_and_width / 2)
         for i in range(1, len(number_of_filters_list)):
             self.conv_layers.append(nn.Conv2d(number_of_filters_list[i-1], number_of_filters_list[i], kernel_size=3))
             self.conv_layers_output_height_and_width = self.conv_layers_output_height_and_width - 2
-            if len(self.number_of_filters_list) < 3 or (i == 1 or i == 2):
+            if i <= 1:
                 self.conv_layers_output_height_and_width = math.ceil(self.conv_layers_output_height_and_width/2)
 
         #  Q3 1-6:
@@ -84,7 +83,7 @@ class CNN(nn.Module):
         val = x
         for i, conv_layer in enumerate(self.conv_layers):
             val = F.relu(conv_layer(val))
-            if len(self.number_of_filters_list) < 3 or (i == 1 or i == 2):
+            if i <= 1:
                 val = self.pool(val)
             val = self.dropout_layer(val)
 
