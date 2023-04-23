@@ -14,8 +14,9 @@ import torchvision
 import pickle
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-best_params = {'lr': 5e-3, 'momentum': 0.9, 'std': 0.1}
-best_params_cnn = {'lr': 5e-3, 'momentum': 0.9, 'std': 0.1}
+best_params_fcn = {'lr': 5e-3, 'momentum': 0.9, 'std': 0.1}
+best_params_cnn = {'lr': 0.01, 'momentum': 0.9, 'std': 0.1}
+best_params_cnn_adam = {'lr': 0.001, 'momentum': 0.9, 'std': 0.1}
 
 def load_data(path):
     with open(path, 'rb') as f:
@@ -201,7 +202,7 @@ def plot_two_compared_configuration_stats(stat1, stat2, name1, name2, epoch_coun
     plt.ylabel("Accuracy")
 
 
-def compare_sgd_adam(network, epoch_count=25, sgd_params=best_params, adam_params=best_params):
+def compare_sgd_adam(network, epoch_count=25, sgd_params=best_params_fcn, adam_params=best_params_fcn):
     # Q2.2
     # Run SGD and ADAM and plot accuracies & loss.
     sgd_lr = sgd_params['lr']
@@ -223,7 +224,7 @@ def compare_sgd_adam(network, epoch_count=25, sgd_params=best_params, adam_param
     plt.savefig(f"{network.__name__}_SGDvsAdam.jpg")
 
 
-def xavier_init(network, epoch_count=25, params=best_params):
+def xavier_init(network, epoch_count=25, params=best_params_fcn):
     # Q2.3
     # Run SGD with std init and Xavier init and plot accuracies & loss.
     lr = params['lr']
@@ -240,7 +241,7 @@ def xavier_init(network, epoch_count=25, params=best_params):
     plt.savefig(f"{network.__name__}_NormalvsXavier.jpg")
 
 
-def regularization_train(network, epoch_count=25, params=best_params):
+def regularization_train(network, epoch_count=25, params=best_params_fcn):
     losses = []
     accs = []
     labels = []
@@ -285,7 +286,7 @@ def regularization_train(network, epoch_count=25, params=best_params):
 
     plt.savefig(f"{cur_net.__class__.__name__}_Regularization.jpg")
 
-def preprocessing_train(network, epoch_count=25, params=best_params):
+def preprocessing_train(network, epoch_count=25, params=best_params_fcn):
     data = get_data_for_net()
     lr = params['lr']
     momentum = params['momentum']
@@ -301,7 +302,7 @@ def preprocessing_train(network, epoch_count=25, params=best_params):
     plt.savefig(f"{pca_network.__class__.__name__}_PCAvsNoPCA.jpg")
 
 
-def width_train(network, epoch_count=25, params=best_params):
+def width_train(network, epoch_count=25, params=best_params_fcn):
     lr = params['lr']
     momentum = params['momentum']
     std = params['std']
@@ -374,7 +375,7 @@ def width_train_CNN(epoch_count=25, params=best_params_cnn):
     draw_plot(losses, labels, options,
               "Network test loss over Epochs\nWith different filter sizes",
               "Epoch Count", "Loss")
-    plt.savefig("CNN_width_loss.jpg")
+    plt.savefig("CNN_width_loss2.jpg")
 
     plt.figure(figsize=(8, 5))
     # plt.subplot(212)
@@ -382,10 +383,10 @@ def width_train_CNN(epoch_count=25, params=best_params_cnn):
               "Network test Accuracy over Epochs\nWith different filter sizes",
               "Epoch Count", "Accuracy")
 
-    plt.savefig("CNN_width_acc.jpg")
+    plt.savefig("CNN_width_acc2.jpg")
 
 
-def depth_train(network, epoch_count=25, params=best_params):
+def depth_train(network, epoch_count=25, params=best_params_fcn):
     lr = params['lr']
     momentum = params['momentum']
     std = params['std']
@@ -426,6 +427,46 @@ def depth_train(network, epoch_count=25, params=best_params):
     plt.savefig("{}_depth_acc.jpg".format(net_name))
 
 
+def depth_train_CNN(epoch_count=25, params=best_params_cnn):
+    lr = params['lr']
+    momentum = params['momentum']
+    std = params['std']
+    data = get_data_for_net()
+    losses = []
+    accs = []
+    labels = []
+    options = []
+    colors = cycle('brgmc')
+    for number_of_filters_list in [(64, 16), (64, 64, 16), (64, 64, 16, 16), (64, 64, 16, 16, 16)]:
+        cur_net = CNN(number_of_filters_list=number_of_filters_list)
+        test_stats, train_stats = train_nn(data=data, net=cur_net, criterion=nn.CrossEntropyLoss(), lr=lr, momentum=momentum,
+                                           std=std, number_of_epochs=epoch_count, optimizer='sgd', init='normal')
+        losses.append(test_stats[0])
+        losses.append(train_stats[0])
+        accs.append(test_stats[1])
+        accs.append(train_stats[1])
+        color = colors.__next__()
+        options.append(color)
+        options.append(color + '--')
+        labels.append("Test Depth {}".format(len(number_of_filters_list)))
+        labels.append("Train Depth {}".format(len(number_of_filters_list)))
+
+    plt.figure(figsize=(8, 5))
+    # plt.subplot(211)
+    draw_plot(losses, labels, options,
+              "Network Loss over Epochs\nWith different network depth",
+              "Epoch Count", "Loss")
+    # plt.subplot(212)
+    plt.savefig("CNN_depth_loss.jpg")
+
+    plt.figure(figsize=(8, 5))
+    draw_plot(accs, labels, options,
+              "Network Accuracy over Epochs\nWith different network depth",
+              "Epoch Count", "Accuracy")
+
+    plt.savefig("CNN_depth_acc.jpg")
+
+
 def question_2():
     pass
     # grid_search(FCN)
@@ -439,11 +480,11 @@ def question_2():
 def question_3():
     # grid_search(CNN)
     # compare_sgd_adam(CNN, 60, sgd_lr=5e-3, sgd_momentum=0.8, sgd_std=0.1, adam_lr=5e-4, adam_momentum=0.8, adam_std=0.1)
-    # xavier_init(CNN, 60)
+    xavier_init(CNN, 60, best_params_cnn)
     # regularization_train(CNN, 30, lr=5e-3, momentum=0.8, std=0.1, weights=[1e-4, 1e-3, 1e-2])
     # preprocessing_train(CNN, 60, lr=5e-3, momentum=0.8, std=0.1)
-    width_train_CNN(60)
-    # depth_train(CNN, 60)
+    # width_train_CNN(60)
+    # depth_train_CNN(60)
 
 
 if __name__ == "__main__":

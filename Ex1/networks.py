@@ -54,8 +54,9 @@ class FCN(nn.Module):
 
 
 class CNN(nn.Module):
+    NAME = 'CNN'
     def __init__(self, dropout=DROPOUT_CNN, number_of_filters_list=(64, 16), pool_layer_kernel_size=2, pool_layer_stride_size=2):
-        super().__init__()
+        super(CNN, self).__init__()
 
         self.number_of_filters_list = number_of_filters_list
         self.conv_layers = [nn.Conv2d(3, number_of_filters_list[0], kernel_size=3)]
@@ -97,18 +98,18 @@ class CNN(nn.Module):
 
         self.fc.weight.data.normal_(mean=0.0, std=std)
         self.fc.bias.data.normal_(mean=0.0, std=std)
+        pass
 
     def init_weights_xavier(self):
-        # TODO: Change to our own Xavier, like in FCN
-        # conv1_range = np.sqrt(6) / np.sqrt(CIFAR_IMAGE_SIZE + )
-        # self.conv1.weight.data.uniform_()
-        nn.init.xavier_uniform_(self.conv1.weight)
-        #nn.init.xavier_uniform_(self.conv1.bias)
-        nn.init.xavier_uniform_(self.conv2.weight)
-        #nn.init.xavier_uniform_(self.conv2.bias)
-        nn.init.xavier_uniform_(self.fc.weight)
-        #nn.init.xavier_uniform_(self.fc.bias)
+        print('hi')
+        layer_range = np.sqrt(6) / np.sqrt(CIFAR_IMAGE_SIZE + self.number_of_filters_list[0] * 3 * 3)
+        self.conv_layers[0].weight.data.uniform_(-layer_range, layer_range)
+        for i in range(1, len(self.number_of_filters_list)):
+            layer_range = np.sqrt(6) / np.sqrt(self.number_of_filters_list[i-1] * 3 * 3 +
+                                               self.number_of_filters_list[i] * 3 * 3)
+            self.conv_layers[i].weight.data.uniform_(-layer_range, layer_range)
 
-
+        out_range = np.sqrt(6) / np.sqrt(self.hidden_width + CIFAR_CLASS_COUNT)
+        self.fc.weight.data.uniform_(-out_range, out_range)
 
 
